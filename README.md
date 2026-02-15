@@ -1,6 +1,6 @@
 # Occam-Claw
 
-A minimal personal AI assistant that runs on Signal via "Note to Self." Built with Occam's razor — fewest components, simplest architecture.
+A minimal personal AI assistant that runs on Signal. Inspired by [Occam's razor](https://en.wikipedia.org/wiki/Occam%27s_razor).
 
 ## What it does
 
@@ -33,15 +33,13 @@ tools/
 - `aiohttp` — Signal websocket + HTTP
 - `google-api-python-client` + `google-auth` — Calendar API
 
-Everything else is Python stdlib.
-
 ## Swapping LLMs
 
-Edit `llm.py`. The `LLM` class exposes one method: `complete(messages, tool_executor) -> str`. Replace the body with any provider's SDK.
+Edit `llm.py`. The `LLM` class exposes one method: `complete(messages, tool_executor) -> str`. 
 
 ## Security
 
 - Runs on your Tailscale network — no public ports
 - `signal-api` binds to `127.0.0.1` only
 - Only responds to your own messages (Note to Self)
-- Credentials stored in `data/` (gitignored)
+- Credentials stored in `data/`
