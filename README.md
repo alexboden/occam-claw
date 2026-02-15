@@ -26,20 +26,14 @@ tools/
   calendar.py      # Google Calendar list/create/update
 ```
 
-## Dependencies
-
-- `boto3` — Claude via AWS Bedrock
-- `ddgs` — DuckDuckGo search
-- `aiohttp` — Signal websocket + HTTP
-- `google-api-python-client` + `google-auth` — Calendar API
-
 ## Swapping LLMs
 
 Edit `llm.py`. The `LLM` class exposes one method: `complete(messages, tool_executor) -> str`. 
 
 ## Security
 
-- Runs on your Tailscale network — no public ports
+- Should run on your Tailscale network
 - `signal-api` binds to `127.0.0.1` only
-- Only responds to your own messages (Note to Self)
-- Credentials stored in `data/`
+- Only responds to your own messages to yourself
+- Credentials and thread data stored in `data/`
+- You can read all the code yourself
