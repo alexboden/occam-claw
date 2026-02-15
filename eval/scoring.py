@@ -137,7 +137,17 @@ def score_case(case: TestCase, trace: CompletionTrace) -> TestResult:
                         tz_ok = False
         checks.append(1.0 if tz_ok else 0.0)
 
-    # --- Check 6: Expected content in response ---
+    # --- Check 6: Forbidden tools ---
+    if case.forbidden_tools:
+        called_set = set(called_names)
+        forbidden_called = [t for t in case.forbidden_tools if t in called_set]
+        if forbidden_called:
+            reasons.append(f"Called forbidden tools: {forbidden_called}")
+            checks.append(0.0)
+        else:
+            checks.append(1.0)
+
+    # --- Check 7: Expected content in response ---
     if case.expected_content:
         final_lower = trace.final_text.lower()
         found = [kw for kw in case.expected_content if kw.lower() in final_lower]
@@ -146,7 +156,7 @@ def score_case(case: TestCase, trace: CompletionTrace) -> TestResult:
             reasons.append(f"Missing in response: {missing}")
         checks.append(len(found) / len(case.expected_content))
 
-    # --- Check 7: Conciseness (word count) ---
+    # --- Check 8: Conciseness (word count) ---
     if case.max_words is not None:
         word_count = len(trace.final_text.split())
         if word_count <= case.max_words:

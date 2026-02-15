@@ -1,12 +1,16 @@
 """CLI entry point for the eval suite.
 
 Usage:
-    python -m eval.runner                           # all backends, all cases
-    python -m eval.runner --backend bedrock         # bedrock only
+    python -m eval.runner                                    # default model from config
+    python -m eval.runner --model anthropic.claude-haiku-4-5-20251001-v1:0
+    python -m eval.runner --model meta.llama3-3-70b-instruct-v1:0
+    python -m eval.runner --model anthropic.claude-sonnet-4-5-20250929-v1:0 \
+                          --model meta.llama3-3-70b-instruct-v1:0          \
+                          --model mistral.mistral-large-3-675b-instruct
+    python -m eval.runner --category tool_selection
+    python -m eval.runner --case ms_01
+    python -m eval.runner --output results.json
     python -m eval.runner --backend ollama --ollama-model llama3.1:8b
-    python -m eval.runner --category tool_selection # one category
-    python -m eval.runner --case ms_01              # one case
-    python -m eval.runner --output results.json     # save JSON
 """
 
 import argparse
@@ -16,7 +20,7 @@ import tomllib
 from dataclasses import asdict
 from pathlib import Path
 
-from eval.backends import BedrockBackend, OllamaBackend, CompletionTrace
+from eval.backends import BedrockBackend, OllamaBackend, make_bedrock_backend, CompletionTrace
 from eval.cases import ALL_CASES, CATEGORIES, TestCase
 from eval.scoring import score_case, TestResult
 from eval.test_image import generate_test_image_base64
@@ -31,19 +35,50 @@ def _load_config() -> dict:
     return {}
 
 
+def _short_model_name(model_id: str) -> str:
+    """Shorten a model ID for display: 'anthropic.claude-sonnet-4-5-20250929-v1:0' -> 'claude-sonnet-4.5'."""
+    # Strip cross-region prefix
+    for prefix in ("us.", "eu.", "ap.", "global."):
+        if model_id.startswith(prefix):
+            model_id = model_id[len(prefix):]
+    # Strip provider prefix
+    for prefix in ("anthropic.", "meta.", "mistral.", "amazon.", "cohere.", "ai21."):
+        if model_id.startswith(prefix):
+            model_id = model_id[len(prefix):]
+    # Strip version suffix
+    for suffix in ("-v1:0", "-v2:0", "-v1", "-v2"):
+        if model_id.endswith(suffix):
+            model_id = model_id[:-len(suffix)]
+    return model_id
+
+
+_REGION_PREFIXES = ("us.", "eu.", "ap.", "global.")
+
+
+def _ensure_region_prefix(model_id: str) -> str:
+    """Add 'us.' prefix if the model ID doesn't have a cross-region prefix.
+    Bedrock cross-region inference requires a region prefix for most models."""
+    if any(model_id.startswith(p) for p in _REGION_PREFIXES):
+        return model_id
+    return f"us.{model_id}"
+
+
 def _build_backends(args, config: dict) -> list:
     backends = []
     llm_config = config.get("llm", {})
+    region = llm_config.get("aws_region", "us-east-1")
 
-    if args.backend in (None, "bedrock"):
-        model = llm_config.get("model", "us.anthropic.claude-sonnet-4-20250514-v1:0")
-        region = llm_config.get("aws_region", "us-east-1")
-        backends.append(BedrockBackend(model=model, aws_region=region))
-
-    if args.backend in (None, "ollama"):
+    if args.backend == "ollama":
         model = args.ollama_model or "llama3.1:8b"
         base_url = args.ollama_url or "http://localhost:11434"
         backends.append(OllamaBackend(model=model, base_url=base_url))
+        return backends
+
+    # Bedrock mode (default)
+    models = args.model if args.model else [llm_config.get("model", "us.anthropic.claude-sonnet-4-20250514-v1:0")]
+    for model in models:
+        model = _ensure_region_prefix(model)
+        backends.append(make_bedrock_backend(model=model, aws_region=region))
 
     return backends
 
@@ -82,8 +117,9 @@ def _print_report(results_by_backend: dict[str, list[TestResult]]):
     backend_names = list(results_by_backend.keys())
     categories = list(CATEGORIES.keys())
 
-    # Header
-    col_width = 28
+    # Dynamically size columns
+    col_width = max(28, max((len(n) + 2 for n in backend_names), default=28))
+
     print()
     header = f"{'Category':<20}"
     for name in backend_names:
@@ -91,7 +127,6 @@ def _print_report(results_by_backend: dict[str, list[TestResult]]):
     print(header)
     print("-" * len(header))
 
-    # Per-category rows
     totals = {name: {"passed": 0, "total": 0, "latency": []} for name in backend_names}
 
     for cat in categories:
@@ -112,7 +147,6 @@ def _print_report(results_by_backend: dict[str, list[TestResult]]):
             totals[name]["latency"].extend(r.latency_ms for r in cat_results)
         print(row)
 
-    # Total row
     print("-" * len(header))
     row = f"{'TOTAL':<20}"
     for name in backend_names:
@@ -162,8 +196,9 @@ def _save_json(results_by_backend: dict[str, list[TestResult]], path: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Eval suite: Bedrock vs Local Models")
-    parser.add_argument("--backend", choices=["bedrock", "ollama"], help="Run only this backend")
+    parser = argparse.ArgumentParser(description="Eval suite: Bedrock model comparison")
+    parser.add_argument("--model", action="append", help="Bedrock model ID (can be repeated for comparison)")
+    parser.add_argument("--backend", choices=["bedrock", "ollama"], help="Backend type (default: bedrock)")
     parser.add_argument("--ollama-model", help="Ollama model name (default: llama3.1:8b)")
     parser.add_argument("--ollama-url", help="Ollama base URL (default: http://localhost:11434)")
     parser.add_argument("--category", help="Run only this category")
@@ -179,14 +214,13 @@ def main():
         print("No backends selected.", file=sys.stderr)
         sys.exit(1)
 
-    # Pre-generate the test image once
     image_b64 = generate_test_image_base64()
     cases = [_prepare_case(c, image_b64) for c in cases]
 
     results_by_backend: dict[str, list[TestResult]] = {}
 
     for backend in backends:
-        label = f"{backend.name} ({backend.model})"
+        label = _short_model_name(backend.model)
         print(f"Running {len(cases)} cases on {label}...")
         results = []
         for i, case in enumerate(cases, 1):
