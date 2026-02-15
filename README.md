@@ -1,4 +1,4 @@
-# Occam-Claw
+# occam-claw
 
 A minimal personal AI assistant that runs on Signal. Inspired by [Occam's razor](https://en.wikipedia.org/wiki/Occam%27s_razor).
 
