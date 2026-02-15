@@ -1,0 +1,23 @@
+[llm]
+model = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+aws_region = "us-east-1"
+# token from BEDROCK_TOKEN env var
+
+[signal]
+enabled = false
+number = "+1234567890"
+api_url = "http://signal-api:8080"
+
+[email]
+enabled = false
+imap_host = "imap.gmail.com"
+smtp_host = "smtp.gmail.com"
+user = "occam-bot@gmail.com"
+# password from OCCAM_EMAIL_PASSWORD env var
+
+[google]
+credentials = "data/google-service-account.json"
+calendar_id = "primary"
+
+[cli]
+enabled = true

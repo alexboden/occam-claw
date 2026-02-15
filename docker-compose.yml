@@ -1,0 +1,23 @@
+services:
+  signal-api:
+    image: bbernhard/signal-cli-rest-api:latest
+    environment:
+      - MODE=json-rpc
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data/signal:/home/.local/share/signal-cli
+    restart: unless-stopped
+
+  occam:
+    build: .
+    depends_on:
+      - signal-api
+    environment:
+      - BEDROCK_TOKEN=${BEDROCK_TOKEN}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - OCCAM_EMAIL_PASSWORD=${OCCAM_EMAIL_PASSWORD:-}
+    volumes:
+      - ./data:/app/data
+      - ./config.toml:/app/config.toml:ro
+    restart: unless-stopped

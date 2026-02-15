@@ -1,0 +1,17 @@
+[project]
+name = "occam-claw"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3",
+    "ddgs",
+    "aiohttp>=3.9",
+    "google-api-python-client",
+    "google-auth",
+]
+
+[project.scripts]
+occam = "occam:main_cli"
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
