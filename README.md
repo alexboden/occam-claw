@@ -1,6 +1,6 @@
 # occam-claw
 
-A minimal personal AI assistant that runs on Signal. Inspired by [Occam's razor](https://en.wikipedia.org/wiki/Occam%27s_razor).
+A minimal personal AI assistant that runs on Signal. Inspired by [Occam's razor](https://en.wikipedia.org/wiki/Occam%27s_razor), read more in the [blog post](https://blog.alexboden.ca/occam-claw/)
 
 ## What it does
 
