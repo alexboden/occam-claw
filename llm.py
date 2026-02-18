@@ -1,12 +1,13 @@
 import json
 import os
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import boto3
 
 
 def _system_prompt() -> str:
-    now = datetime.now(timezone.utc).astimezone()
+    now = datetime.now(ZoneInfo("America/Toronto"))
     date_str = now.strftime("%A, %B %d, %Y %I:%M %p %Z")
     return (
         f"You are Occam, a concise personal assistant. "

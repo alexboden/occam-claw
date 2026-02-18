@@ -19,6 +19,17 @@ def load_config() -> dict:
     return {}
 
 
+def _fmt_time(iso: str) -> str:
+    """Format an ISO datetime string into a friendly display like 'Feb 18, 10:00 AM EST'."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    try:
+        dt = datetime.fromisoformat(iso).astimezone(ZoneInfo("America/Toronto"))
+        return dt.strftime("%b %-d, %-I:%M %p %Z")
+    except (ValueError, TypeError):
+        return iso
+
+
 def _format_calendar_action(name: str, args: dict, result) -> str | None:
     """Format a calendar tool call into a human-readable confirmation."""
     if not isinstance(result, dict) or "id" not in result:
@@ -31,17 +42,49 @@ def _format_calendar_action(name: str, args: dict, result) -> str | None:
     else:
         return None
 
+    old = result.get("old", {})
+    is_update = name == "update_calendar_event" and old
+
     lines = ["\n\n---", label]
-    if args.get("summary"):
-        lines.append(f"*Title:* {args['summary']}")
-    if args.get("start"):
-        lines.append(f"*Start:* {args['start']}")
-    if args.get("end"):
-        lines.append(f"*End:* {args['end']}")
-    if args.get("description"):
-        lines.append(f"*Description:* {args['description']}")
-    if args.get("location"):
-        lines.append(f"*Location:* {args['location']}")
+
+    if is_update:
+        old_summary = old.get("summary", "")
+        new_summary = args.get("summary", "")
+        if new_summary and new_summary != old_summary:
+            lines.append(f"*Title:* {old_summary} → {new_summary}")
+        else:
+            lines.append(f"*Title:* {new_summary or old_summary}")
+
+        old_start = old.get("start", "")
+        old_end = old.get("end", "")
+        new_start = args.get("start", "")
+        new_end = args.get("end", "")
+        if new_start and new_start != old_start:
+            lines.append(f"*Start:* {_fmt_time(old_start)} → {_fmt_time(new_start)}")
+        elif new_start:
+            lines.append(f"*Start:* {_fmt_time(new_start)}")
+        if new_end and new_end != old_end:
+            lines.append(f"*End:* {_fmt_time(old_end)} → {_fmt_time(new_end)}")
+        elif new_end:
+            lines.append(f"*End:* {_fmt_time(new_end)}")
+
+        for key, label_str in [("description", "Description"), ("location", "Location")]:
+            new_val = args.get(key, "")
+            old_val = old.get(key, "")
+            if new_val and new_val != old_val:
+                lines.append(f"*{label_str}:* {old_val} → {new_val}" if old_val else f"*{label_str}:* {new_val}")
+    else:
+        if args.get("summary"):
+            lines.append(f"*Title:* {args['summary']}")
+        if args.get("start"):
+            lines.append(f"*Start:* {_fmt_time(args['start'])}")
+        if args.get("end"):
+            lines.append(f"*End:* {_fmt_time(args['end'])}")
+        if args.get("description"):
+            lines.append(f"*Description:* {args['description']}")
+        if args.get("location"):
+            lines.append(f"*Location:* {args['location']}")
+
     if result.get("link"):
         lines.append(f"*Link:* {result['link']}")
     return "\n".join(lines)
@@ -103,7 +146,8 @@ def handle_message(llm: LLM, config: dict):
                 return {"error": f"Unknown tool: {name}"}
 
             log.info("[%s] Calling LLM...", msg.thread_id)
-            response = llm.complete(history, tool_executor)
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(None, llm.complete, history, tool_executor)
 
             if calendar_confirmations:
                 response += "".join(calendar_confirmations)

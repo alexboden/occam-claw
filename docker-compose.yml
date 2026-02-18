@@ -2,9 +2,9 @@ services:
   signal-api:
     image: bbernhard/signal-cli-rest-api:latest
     environment:
-      - MODE=json-rpc
+      - MODE=normal
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8082:8080"
     volumes:
       - ./data/signal:/home/.local/share/signal-cli
     restart: unless-stopped

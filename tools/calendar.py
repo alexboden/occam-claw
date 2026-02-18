@@ -50,7 +50,20 @@ def create_event(creds_path: str, calendar_id: str, summary: str, start: str, en
 
 def update_event(creds_path: str, calendar_id: str, event_id: str, **updates) -> dict:
     service = _get_service(creds_path)
-    existing = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+    from googleapiclient.errors import HttpError
+    try:
+        existing = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+    except HttpError as e:
+        if e.resp.status == 404:
+            return {"error": f"Event not found: {event_id}. Use list_calendar_events to get valid event IDs."}
+        raise
+    old = {
+        "summary": existing.get("summary", ""),
+        "start": existing["start"].get("dateTime", existing["start"].get("date", "")),
+        "end": existing["end"].get("dateTime", existing["end"].get("date", "")),
+        "description": existing.get("description", ""),
+        "location": existing.get("location", ""),
+    }
     for key in ("summary", "description", "location"):
         if key in updates:
             existing[key] = updates[key]
@@ -59,4 +72,4 @@ def update_event(creds_path: str, calendar_id: str, event_id: str, **updates) ->
     if "end" in updates:
         existing["end"]["dateTime"] = updates["end"]
     updated = service.events().update(calendarId=calendar_id, eventId=event_id, body=existing).execute()
-    return {"id": updated["id"], "summary": updated["summary"], "link": updated["htmlLink"]}
+    return {"id": updated["id"], "summary": updated["summary"], "link": updated["htmlLink"], "old": old}
