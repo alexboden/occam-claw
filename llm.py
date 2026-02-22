@@ -82,6 +82,17 @@ TOOLS = [
             "required": ["event_id"],
         },
     },
+    {
+        "name": "delete_calendar_event",
+        "description": "Delete a calendar event. Use list_calendar_events first to get the event ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "event_id": {"type": "string", "description": "The event ID from list_calendar_events."},
+            },
+            "required": ["event_id"],
+        },
+    },
 ]
 
 

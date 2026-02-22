@@ -39,15 +39,24 @@ def _format_calendar_action(name: str, args: dict, result) -> str | None:
         label = "**Event Created**"
     elif name == "update_calendar_event":
         label = "**Event Updated**"
+    elif name == "delete_calendar_event":
+        label = "**Event Deleted**"
     else:
         return None
 
     old = result.get("old", {})
     is_update = name == "update_calendar_event" and old
+    is_delete = name == "delete_calendar_event"
 
     lines = ["\n\n---", label]
 
-    if is_update:
+    if is_delete:
+        lines.append(f"*Title:* {result.get('summary', '')}")
+        if result.get("start"):
+            lines.append(f"*Start:* {_fmt_time(result['start'])}")
+        if result.get("end"):
+            lines.append(f"*End:* {_fmt_time(result['end'])}")
+    elif is_update:
         old_summary = old.get("summary", "")
         new_summary = args.get("summary", "")
         if new_summary and new_summary != old_summary:
@@ -139,6 +148,15 @@ def handle_message(llm: LLM, config: dict):
                     cal_id = config.get("google", {}).get("calendar_id", "primary")
                     event_id = args.pop("event_id")
                     result = calendar.update_event(creds, cal_id, event_id, **args)
+                    confirmation = _format_calendar_action(name, args, result)
+                    if confirmation:
+                        calendar_confirmations.append(confirmation)
+                    return result
+                elif name == "delete_calendar_event":
+                    from tools import calendar
+                    creds = config.get("google", {}).get("credentials", "data/google-service-account.json")
+                    cal_id = config.get("google", {}).get("calendar_id", "primary")
+                    result = calendar.delete_event(creds, cal_id, args["event_id"])
                     confirmation = _format_calendar_action(name, args, result)
                     if confirmation:
                         calendar_confirmations.append(confirmation)

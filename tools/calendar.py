@@ -48,6 +48,22 @@ def create_event(creds_path: str, calendar_id: str, summary: str, start: str, en
     return {"id": created["id"], "summary": created["summary"], "link": created["htmlLink"]}
 
 
+def delete_event(creds_path: str, calendar_id: str, event_id: str) -> dict:
+    service = _get_service(creds_path)
+    from googleapiclient.errors import HttpError
+    try:
+        existing = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+    except HttpError as e:
+        if e.resp.status == 404:
+            return {"error": f"Event not found: {event_id}. Use list_calendar_events to get valid event IDs."}
+        raise
+    summary = existing.get("summary", "(no title)")
+    start = existing["start"].get("dateTime", existing["start"].get("date", ""))
+    end = existing["end"].get("dateTime", existing["end"].get("date", ""))
+    service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
+    return {"id": event_id, "summary": summary, "start": start, "end": end}
+
+
 def update_event(creds_path: str, calendar_id: str, event_id: str, **updates) -> dict:
     service = _get_service(creds_path)
     from googleapiclient.errors import HttpError
