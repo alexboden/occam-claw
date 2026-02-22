@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import boto3
+from botocore.config import Config
 
 
 def _system_prompt() -> str:
@@ -91,7 +92,15 @@ class LLM:
         token = os.environ.get("BEDROCK_TOKEN")
         if token:
             os.environ["AWS_BEARER_TOKEN_BEDROCK"] = token
-        self.client = boto3.client("bedrock-runtime", region_name=aws_region)
+        self.client = boto3.client(
+            "bedrock-runtime",
+            region_name=aws_region,
+            config=Config(
+                connect_timeout=5,
+                read_timeout=120,
+                tcp_keepalive=True,
+            ),
+        )
 
     def complete(self, messages: list[dict], tool_executor=None) -> str:
         """Send messages to Claude via Bedrock invoke_model, handle tool calls in a loop."""
