@@ -10,7 +10,7 @@ import store
 
 log = logging.getLogger(__name__)
 
-POLL_INTERVAL = 1  # seconds between polls
+RECONNECT_DELAY = 5  # seconds before reconnecting a dropped WebSocket
 
 
 async def _send(
@@ -112,91 +112,99 @@ async def _download_attachment(api_url: str, attachment_id: str) -> bytes | None
 
 
 async def listen(number: str, api_url: str, on_message):
-    """Poll signal-cli-rest-api for incoming messages and dispatch them."""
+    """Connect to signal-cli-rest-api via WebSocket and dispatch incoming messages."""
     sent_timestamps: set[int] = set()
 
-    log.info("Signal polling started for %s at %s (every %ss)", number, api_url, POLL_INTERVAL)
+    ws_url = api_url.replace("http://", "ws://").replace("https://", "wss://")
+    ws_endpoint = f"{ws_url}/v1/receive/{number}"
+
+    log.info("Signal WebSocket connecting to %s", ws_endpoint)
 
     async with aiohttp.ClientSession() as session:
         while True:
             try:
-                resp = await session.get(f"{api_url}/v1/receive/{number}", timeout=aiohttp.ClientTimeout(total=30))
-                if resp.status != 200:
-                    log.warning("Signal poll returned %s, retrying...", resp.status)
-                    await asyncio.sleep(POLL_INTERVAL)
-                    continue
+                async with session.ws_connect(ws_endpoint) as ws:
+                    log.info("Signal WebSocket connected for %s", number)
 
-                messages = json.loads(await resp.text())
-                for data in messages:
-                    msg_ts = data.get("envelope", {}).get("timestamp")
-                    if msg_ts in sent_timestamps:
-                        sent_timestamps.discard(msg_ts)
-                        continue
+                    async for msg in ws:
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            try:
+                                data = json.loads(msg.data)
+                            except json.JSONDecodeError:
+                                log.warning("Signal WS: invalid JSON: %s", msg.data[:200])
+                                continue
 
-                    result = _extract_message(data, number)
-                    if not result:
-                        continue
+                            msg_ts = data.get("envelope", {}).get("timestamp")
+                            if msg_ts in sent_timestamps:
+                                sent_timestamps.discard(msg_ts)
+                                continue
 
-                    sender, text, quote_ts, raw_attachments = result
+                            result = _extract_message(data, number)
+                            if not result:
+                                continue
 
-                    # Download image attachments
-                    attachments = []
-                    for att in raw_attachments:
-                        content_type = att.get("contentType", "")
-                        att_id = att.get("id")
-                        if att_id and content_type.startswith("image/"):
-                            image_data = await _download_attachment(api_url, att_id)
-                            if image_data:
-                                attachments.append(Attachment(data=image_data, media_type=content_type))
+                            sender, text, quote_ts, raw_attachments = result
 
-                    # Determine thread
-                    if quote_ts:
-                        thread_id = store.get_thread_for_timestamp(quote_ts)
-                    else:
-                        thread_id = None
+                            # Download image attachments
+                            attachments = []
+                            for att in raw_attachments:
+                                content_type = att.get("contentType", "")
+                                att_id = att.get("id")
+                                if att_id and content_type.startswith("image/"):
+                                    image_data = await _download_attachment(api_url, att_id)
+                                    if image_data:
+                                        attachments.append(Attachment(data=image_data, media_type=content_type))
 
-                    if not thread_id:
-                        thread_id = uuid.uuid4().hex[:12]
+                            # Determine thread
+                            if quote_ts:
+                                thread_id = store.get_thread_for_timestamp(quote_ts)
+                            else:
+                                thread_id = None
 
-                    log.info("Signal [%s] from %s: %s", thread_id, sender, text[:50])
+                            if not thread_id:
+                                thread_id = uuid.uuid4().hex[:12]
 
-                    if msg_ts:
-                        store.map_timestamp(msg_ts, thread_id)
+                            log.info("Signal [%s] from %s: %s", thread_id, sender, text[:50])
 
-                    # React with hourglass to acknowledge receipt
-                    if msg_ts:
-                        await _react(api_url, number, sender, sender, msg_ts, "\u231b")
+                            if msg_ts:
+                                store.map_timestamp(msg_ts, thread_id)
 
-                    async def reply(resp, _to=sender, _tid=thread_id, _msg_ts=msg_ts, _text=text):
-                        sent_ts = await _send(
-                            api_url, number, _to, resp,
-                            quote_timestamp=_msg_ts, quote_author=_to, quote_message=_text,
-                        )
-                        if sent_ts:
-                            sent_timestamps.add(int(sent_ts))
-                            store.map_timestamp(int(sent_ts), _tid)
-                        if _msg_ts:
-                            await _remove_react(api_url, number, _to, _to, _msg_ts, "\u231b")
+                            # React with hourglass to acknowledge receipt
+                            if msg_ts:
+                                await _react(api_url, number, sender, sender, msg_ts, "\u231b")
 
-                    async def _handle(msg, handler=on_message):
-                        try:
-                            await handler(msg)
-                        except Exception:
-                            log.exception("Error in message handler for [%s]", msg.thread_id)
+                            async def reply(resp, _to=sender, _tid=thread_id, _msg_ts=msg_ts, _text=text):
+                                sent_ts = await _send(
+                                    api_url, number, _to, resp,
+                                    quote_timestamp=_msg_ts, quote_author=_to, quote_message=_text,
+                                )
+                                if sent_ts:
+                                    sent_timestamps.add(int(sent_ts))
+                                    store.map_timestamp(int(sent_ts), _tid)
+                                if _msg_ts:
+                                    await _remove_react(api_url, number, _to, _to, _msg_ts, "\u231b")
 
-                    asyncio.create_task(_handle(Message(
-                        channel="signal",
-                        sender=sender,
-                        text=text,
-                        thread_id=thread_id,
-                        reply=reply,
-                        quote_timestamp=quote_ts,
-                        attachments=attachments,
-                    )))
+                            async def _handle(msg, handler=on_message):
+                                try:
+                                    await handler(msg)
+                                except Exception:
+                                    log.exception("Error in message handler for [%s]", msg.thread_id)
+
+                            asyncio.create_task(_handle(Message(
+                                channel="signal",
+                                sender=sender,
+                                text=text,
+                                thread_id=thread_id,
+                                reply=reply,
+                                quote_timestamp=quote_ts,
+                                attachments=attachments,
+                            )))
+
+                        elif msg.type == aiohttp.WSMsgType.ERROR:
+                            log.warning("Signal WS error: %s", ws.exception())
+                            break
 
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                log.warning("Signal poll error: %s. Retrying in 5s...", e)
-                await asyncio.sleep(5)
-                continue
+                log.warning("Signal WebSocket connection failed: %s. Reconnecting in %ss...", e, RECONNECT_DELAY)
 
-            await asyncio.sleep(POLL_INTERVAL)
+            await asyncio.sleep(RECONNECT_DELAY)

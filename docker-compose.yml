@@ -2,7 +2,7 @@ services:
   signal-api:
     image: bbernhard/signal-cli-rest-api:latest
     environment:
-      - MODE=normal
+      - MODE=json-rpc
     ports:
       - "127.0.0.1:8082:8080"
     volumes:
