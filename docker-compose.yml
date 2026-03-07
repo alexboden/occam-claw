@@ -1,6 +1,9 @@
 services:
   signal-api:
-    image: bbernhard/signal-cli-rest-api:latest
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: signal-api.Dockerfile
     environment:
       - MODE=json-rpc
     ports:
